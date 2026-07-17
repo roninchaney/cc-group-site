@@ -1,7 +1,8 @@
 // netlify/functions/submission-created.js
 //
-// Netlify automatically calls any function named "submission-created" right after
-// ANY form on this site is submitted (no extra webhook config needed in the UI).
+// Called directly by contact.html right after a successful form submission
+// (Netlify's "auto-trigger by filename" convention isn't reliably firing on
+// this account, so the page calls this function's URL itself instead).
 // This one:
 //   1. Reads the submitted form fields
 //   2. Asks Claude (Haiku) to turn them into a clean markdown project brief
@@ -10,14 +11,29 @@
 // Required environment variables (set in Netlify site settings -> Environment variables):
 //   CLAUDE_API_KEY       - Anthropic API key
 //   DISCORD_WEBHOOK_URL   - Discord webhook URL for the channel briefs should land in
+//
+// Accepts either:
+//   - a direct call: { "formName": "become-a-client", "fields": { "first_name": "...", ... } }
+//   - Netlify's native webhook shape: { "payload": { "form_name": "...", "data": {...} } }
 
 exports.handler = async (event) => {
   try {
-    const body = JSON.parse(event.body);
-    const data = (body.payload && body.payload.data) || {};
-    const formName = (body.payload && body.payload.form_name) || "unknown-form";
+    const body = JSON.parse(event.body || "{}");
 
-    // Ignore Netlify's own spam/honeypot flag if present
+    let data = {};
+    let formName = "unknown-form";
+
+    if (body.fields) {
+      // Direct call from the page
+      data = body.fields;
+      formName = body.formName || formName;
+    } else if (body.payload) {
+      // Netlify's own webhook shape, if it ever fires
+      data = body.payload.data || {};
+      formName = body.payload.form_name || formName;
+    }
+
+    // Ignore the spam honeypot if it's somehow filled in
     if (data["bot-field"]) {
       return { statusCode: 200, body: "ignored (honeypot)" };
     }
@@ -28,13 +44,13 @@ exports.handler = async (event) => {
       .join("\n");
 
     const markdown = await buildBriefMarkdown(formName, fields);
-    await postToDiscord(markdown, data.sender || data.reach || "New submission");
+    const label = [data.first_name, data.last_name].filter(Boolean).join(" ") || data.email || "New submission";
+    await postToDiscord(markdown, label);
 
     return { statusCode: 200, body: "ok" };
   } catch (err) {
     console.error("submission-created error:", err);
-    // Still return 200 so Netlify doesn't retry-storm; the error is logged for debugging.
-    return { statusCode: 200, body: "error logged" };
+    return { statusCode: 500, body: String(err) };
   }
 };
 
