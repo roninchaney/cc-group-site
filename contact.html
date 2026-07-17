@@ -220,11 +220,57 @@
 
   #status {
     display: none;
-    font-size: 17px;
-    line-height: 1.7;
-    padding: 40px 0;
+    position: fixed;
+    inset: 0;
+    background: #050505;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 40px;
+    z-index: 20;
   }
-  #status.visible { display: block; }
+  #status.visible { display: flex; }
+  #status .check {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 28px;
+    animation: popIn 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  }
+  #status .check svg { width: 28px; height: 28px; }
+  @keyframes popIn {
+    0% { transform: scale(0); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  #status h2 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 14px;
+  }
+  #status p {
+    font-size: 16px;
+    color: #a8a8a8;
+    max-width: 420px;
+    line-height: 1.6;
+    margin: 0 0 32px;
+  }
+  #status a.home-link {
+    color: #050505;
+    background: #ffffff;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 14px 28px;
+    border-radius: 2px;
+    transition: opacity 0.2s ease;
+  }
+  #status a.home-link:hover { opacity: 0.85; }
+
   #error {
     display: none;
     font-size: 13px;
@@ -309,10 +355,20 @@
 
     <button type="submit" id="submit-btn">Let's talk.</button>
     <div class="fine-print">By submitting, you agree to let us reach out about your project. We don't share your info with anyone else.<br>Prefer email? Reach us directly at <a href="mailto:contact@theccgroupco.com">contact@theccgroupco.com</a>.</div>
-    <div id="status"></div>
     <div id="error"></div>
   </form>
 </main>
+
+<div id="status">
+  <div class="check">
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 12.5L9.5 18L20 6" stroke="#FFD085" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <h2>Message sent.</h2>
+  <p>Thanks for reaching out — we've got your details and we'll be in touch soon.</p>
+  <a class="home-link" href="index.html">Back to home</a>
+</div>
 
 <script>
   var form = document.getElementById('brief-form');
@@ -342,12 +398,24 @@
       body: encode(payload)
     })
       .then(function() {
-        form.classList.add('fade-out');
-        setTimeout(function() {
-          form.style.display = 'none';
-          statusEl.textContent = "Got it. We'll be in touch soon.";
-          statusEl.classList.add('visible');
-        }, 350);
+        // Show the confirmation screen right away - the visitor shouldn't
+        // wait on the background brief generation below.
+        statusEl.classList.add('visible');
+
+        // Fire the brief-generation function directly (best-effort, not
+        // blocking the confirmation). Netlify's submitted-form doesn't
+        // reliably auto-trigger this on its own, so the page calls it.
+        var fields = {};
+        Object.keys(payload).forEach(function(k) {
+          if (k !== 'form-name' && k !== 'bot-field') fields[k] = payload[k];
+        });
+        fetch('/.netlify/functions/submission-created', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ formName: 'become-a-client', fields: fields })
+        }).catch(function(err) {
+          console.error('Brief generation call failed:', err);
+        });
       })
       .catch(function() {
         errorEl.textContent = 'Something went wrong. Please try again.';
