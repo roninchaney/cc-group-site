@@ -12,11 +12,42 @@
 //   CLAUDE_API_KEY       - Anthropic API key
 //   DISCORD_WEBHOOK_URL   - Discord webhook URL for the channel briefs should land in
 //
+// DIAGNOSTIC MODE: visit this function's URL directly in a browser (a plain GET
+// request) to see whether the env vars are actually present at runtime, their
+// length, and a masked preview - without ever exposing the full secret.
+//
 // Accepts either:
 //   - a direct call: { "formName": "become-a-client", "fields": { "first_name": "...", ... } }
 //   - Netlify's native webhook shape: { "payload": { "form_name": "...", "data": {...} } }
 
+function maskSecret(value) {
+  if (!value) return { present: false };
+  return {
+    present: true,
+    length: value.length,
+    preview: value.length > 12
+      ? value.slice(0, 8) + "..." + value.slice(-4)
+      : "(too short to preview safely)",
+  };
+}
+
 exports.handler = async (event) => {
+  // Diagnostic mode: GET request just reports env var status, calls nothing external.
+  if (event.httpMethod === "GET") {
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        {
+          CLAUDE_API_KEY: maskSecret(process.env.CLAUDE_API_KEY),
+          DISCORD_WEBHOOK_URL: maskSecret(process.env.DISCORD_WEBHOOK_URL),
+        },
+        null,
+        2
+      ),
+    };
+  }
+
   try {
     const body = JSON.parse(event.body || "{}");
 
@@ -76,7 +107,8 @@ async function buildBriefMarkdown(formName, rawFields) {
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Claude API error ${res.status}: ${errText}`);
+    const keyInfo = maskSecret(process.env.CLAUDE_API_KEY);
+    throw new Error(`Claude API error ${res.status}: ${errText} | key seen by function: ${JSON.stringify(keyInfo)}`);
   }
 
   const json = await res.json();
